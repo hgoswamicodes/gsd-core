@@ -1516,8 +1516,17 @@ function cmdPhaseComplete(cwd: string, phaseNum: string, raw: boolean): void {
           roadmapContent = roadmapContent.replace(tableRowPattern, updateProgressRow);
         }
 
+        // The gap between the phase header and its `**Plans:**` line must not
+        // cross into a LATER phase's section. A bare lazy `[\s\S]*?` will happily
+        // skip past the next `## Phase` header when the target phase has no
+        // `**Plans:**` line of its own, so the replacement would overwrite the
+        // NEXT phase's plan count — silent ROADMAP.md corruption. The tempered
+        // lazy token `(?:(?!#{2,4}\s*Phase\s)[\s\S])*?` stops at the next phase
+        // header, making a target section without a `**Plans:**` line a no-op.
+        // (Sibling REQUIREMENTS.md logic below is already bounded via a
+        // `(?=#{2,4}\s*Phase\s+|$)` lookahead.)
         const planCountPattern = new RegExp(
-          `(#{2,4}\\s*Phase\\s+${phaseEscaped}[\\s\\S]*?\\*\\*Plans:\\*\\*\\s*)[^\\n]+`,
+          `(#{2,4}\\s*Phase\\s+${phaseEscaped}(?:(?!#{2,4}\\s*Phase\\s)[\\s\\S])*?\\*\\*Plans:\\*\\*\\s*)[^\\n]+`,
           'i',
         );
         roadmapContent = roadmapContent.replace(

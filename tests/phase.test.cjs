@@ -2619,6 +2619,56 @@ describe('phase complete command', () => {
     assert.strictEqual(phase2Line[1], ' ', 'Phase 2 checkbox must remain unchecked (#2067)');
   });
 
+  // Same bug class as the #2067 checkbox-regex fix, distinct pattern: the
+  // planCountPattern used a bare lazy `[\s\S]*?` between the phase header and
+  // `**Plans:**`. When the phase being completed has NO `**Plans:**` line of its
+  // own, the lazy match jumps past its section into a LATER phase and rewrites
+  // THAT phase's plan count — silent ROADMAP.md corruption. Completing Phase 1
+  // (no **Plans:** line) must leave Phase 2's `**Plans:** 5 plans` untouched.
+  test('completing a phase with no **Plans:** line must not overwrite a later phase\'s plan count', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+- [ ] Phase 1: Foundation
+- [ ] Phase 2: API
+
+### Phase 1: Foundation
+**Goal:** Setup
+
+### Phase 2: API
+**Goal:** Build API
+**Plans:** 5 plans
+`
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Current Phase:** 01\n**Current Phase Name:** Foundation\n**Status:** In progress\n**Current Plan:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working on phase 1\n`
+    );
+
+    const p1 = path.join(tmpDir, '.planning', 'phases', '01-foundation');
+    fs.mkdirSync(p1, { recursive: true });
+    fs.writeFileSync(path.join(p1, '01-01-PLAN.md'), '# Plan');
+    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '02-api'), { recursive: true });
+
+    const result = runVerifiedPhaseComplete('phase complete 1', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    // Phase 2's plan count MUST remain the literal "5 plans" it started with.
+    // The bug rewrote it to a completion count like "1/1 plans complete".
+    assert.match(
+      roadmap,
+      /### Phase 2: API[\s\S]*?\*\*Plans:\*\* 5 plans/,
+      'Phase 2 **Plans:** 5 plans must be UNCHANGED when completing Phase 1 (which has no **Plans:** line)'
+    );
+    assert.ok(
+      !/\*\*Plans:\*\* 1\/1 plans complete/.test(roadmap),
+      'no **Plans:** line should have been rewritten to a completion count'
+    );
+  });
+
   test('#2012 — Progress row updated even when an earlier phase-numbered table precedes ## Progress', () => {
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'ROADMAP.md'),
